@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="BREAKER: 물리 파괴 퍼즐, AI 전차 공성전, 서버 없는 WebRTC 방 코드 P2P 실시간 대전, 성채 맵 에디터를 결합한 웹 물리 아레나">
+    <title>BREAKER — 물리 공성 &amp; P2P 대전 아레나</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=JetBrains+Mono:wght@500;700&family=Noto+Sans+KR:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="./styles.css">
+
+    <script src="https://cdn.jsdelivr.net/npm/matter-js@0.20.0/build/matter.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body>
+    <header class="top-header">
+        <div class="brand-group">
+            <h1 class="brand-title">BREAKER</h1>
+            <span class="brand-tag">PHYSICS SIEGE + P2P</span>
+        </div>
+
+        <nav class="mode-nav" aria-label="게임 모드 선택">
+            <button id="tab-solo" class="mode-tab active" type="button">싱글 철거</button>
+            <button id="tab-ai" class="mode-tab" type="button">AI 공성전</button>
+            <button id="tab-p2p" class="mode-tab" type="button">P2P 방 대전</button>
+            <button id="tab-editor" class="mode-tab" type="button">성채 에디터</button>
+        </nav>
+
+        <div class="header-actions">
+            <button id="btn-editor-return" class="icon-btn active-toggle" type="button" style="display:none;">에디터 복귀</button>
+            <button id="btn-stage-menu" class="icon-btn" type="button">맵 선택</button>
+            <button id="btn-reset-match" class="icon-btn" type="button">재시작 (R)</button>
+            <button id="btn-mute-audio" class="icon-btn" type="button">사운드 ON</button>
+        </div>
+    </header>
+
+    <main class="viewport-wrap">
+        <canvas id="game-canvas"></canvas>
+    </main>
+
+    <section class="hud-overlay" aria-label="전투 상태 정보">
+        <div id="hud-info-card" class="hud-card">
+            <div class="hud-row">
+                <div class="stat-block">
+                    <span class="stat-label" id="hud-mode-label">STAGE</span>
+                    <span class="stat-value amber" id="hud-stage-title">교량 지지대 붕괴</span>
+                </div>
+                <div class="divider-v"></div>
+                <div class="stat-block">
+                    <span class="stat-label" id="hud-sub-stat-label">남은 타겟 코어</span>
+                    <span class="stat-value teal" id="hud-sub-stat-val">3</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="duel-vitals-bar" class="duel-vitals">
+            <div class="vital-side">
+                <div class="vital-header">
+                    <span>1P AMBER</span>
+                    <span id="p1-core-txt">코어 1</span>
+                </div>
+                <div class="vital-bar-track">
+                    <div id="p1-hp-fill" class="vital-bar-fill p1"></div>
+                </div>
+            </div>
+
+            <span class="vs-badge">VS</span>
+
+            <div class="vital-side right">
+                <div class="vital-header">
+                    <span id="p2-core-txt">코어 1</span>
+                    <span id="p2-name-label">AI BOT</span>
+                </div>
+                <div class="vital-bar-track">
+                    <div id="p2-hp-fill" class="vital-bar-fill p2"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <aside id="weapon-dock" class="weapon-dock" aria-label="무기 선택 슬롯">
+        <button id="wep-btn-0" class="wep-btn selected" type="button">
+            <div class="wep-top"><span class="wep-key">1</span><span id="wep-ammo-0" class="wep-ammo">x3</span></div>
+            <span class="wep-name">철갑탄</span>
+            <span class="wep-sub">관통 · 강한 넉백</span>
+            <div id="wep-cd-0" class="cooldown-bar"></div>
+        </button>
+        <button id="wep-btn-1" class="wep-btn" type="button">
+            <div class="wep-top"><span class="wep-key">2</span><span id="wep-ammo-1" class="wep-ammo">x1</span></div>
+            <span class="wep-name">고폭 파편탄</span>
+            <span class="wep-sub">폭발 · 우클릭 분열</span>
+            <div id="wep-cd-1" class="cooldown-bar"></div>
+        </button>
+        <button id="wep-btn-2" class="wep-btn" type="button">
+            <div class="wep-top"><span class="wep-key">3</span><span id="wep-ammo-2" class="wep-ammo">x0</span></div>
+            <span class="wep-name">블랙홀 중력탄</span>
+            <span class="wep-sub">흡입 · 우클릭 기폭</span>
+            <div id="wep-cd-2" class="cooldown-bar"></div>
+        </button>
+        <button id="wep-btn-3" class="wep-btn" type="button">
+            <div class="wep-top"><span class="wep-key">4</span><span id="wep-ammo-3" class="wep-ammo">x0</span></div>
+            <span class="wep-name">지진 파쇄탄</span>
+            <span class="wep-sub">중장갑 · 우클릭 급강하</span>
+            <div id="wep-cd-3" class="cooldown-bar"></div>
+        </button>
+    </aside>
+
+    <aside id="editor-dock" class="editor-dock" aria-label="성채 맵 에디터 도구">
+        <div id="editor-brushes" class="btn-row"></div>
+        <div class="divider-v"></div>
+        <button id="btn-shape-cycle" class="icon-btn" type="button">크기: 세로 기둥</button>
+        <button id="btn-rot-left" class="icon-btn" type="button">↺ 15° (Q)</button>
+        <button id="btn-rot-right" class="icon-btn" type="button">↻ 15° (E)</button>
+        <button id="btn-mirror-toggle" class="icon-btn active-toggle" type="button">좌우 대칭 ON</button>
+        <button id="btn-editor-clear" class="icon-btn" type="button">초기화</button>
+        <button id="btn-map-share" class="secondary-btn" type="button">코드 / 링크 공유</button>
+        <button id="btn-test-solo" class="primary-btn" type="button">철거 테스트</button>
+        <button id="btn-test-duel" class="primary-btn" type="button">AI 대전 테스트</button>
+    </aside>
+
+    <div id="controls-hint" class="controls-hint">
+        마우스 거리: 발사 세기 조절 · 좌클릭: 발사 · 우클릭/스페이스: 특수탄 공중 기폭 · 숫자 1~4: 탄종 변경
+    </div>
+
+    <div id="toast-banner" class="toast-banner" role="status" aria-live="polite"></div>
+
+    <!-- Stage & Arena Selection Modal -->
+    <div id="modal-stages" class="modal-backdrop">
+        <div class="modal-panel">
+            <div class="modal-header">
+                <h2 class="modal-title">전장 및 스테이지 선택</h2>
+                <button id="btn-close-stages" class="icon-btn" type="button">닫기</button>
+            </div>
+            <p class="modal-desc">싱글 물리 철거 퍼즐(6종) 또는 실시간 공성 대전 아레나(3종)를 선택하세요.</p>
+            <h3 style="margin:0 0 10px 0;font-size:14px;color:var(--accent-amber);">싱글 철거 퍼즐</h3>
+            <div id="stage-grid-solo" class="stage-grid"></div>
+            <h3 style="margin:14px 0 10px 0;font-size:14px;color:var(--accent-teal);">AI / P2P 공성 대전 아레나</h3>
+            <div id="stage-grid-duel" class="stage-grid"></div>
+        </div>
+    </div>
+
+    <!-- P2P WebRTC Multiplayer Lobby Modal -->
+    <div id="modal-p2p" class="modal-backdrop">
+        <div class="modal-panel">
+            <div class="modal-header">
+                <h2 class="modal-title">P2P 실시간 방 코드 대전</h2>
+                <button id="btn-close-p2p" class="icon-btn" type="button">닫기</button>
+            </div>
+            <p class="modal-desc">별도 게임 서버 없이 WebRTC 데이터 채널로 두 브라우저를 직접 연결합니다. 방 코드를 공유하거나 초대 링크를 보내 바로 붙어보세요.</p>
+
+            <div class="p2p-columns">
+                <div class="p2p-box">
+                    <h3>방 만들기 (1P 호스트)</h3>
+                    <p>4자리 방 코드를 발급하고 전장을 선택합니다.</p>
+                    <div id="room-code-box" class="room-code-display">----</div>
+                    <div class="btn-row">
+                        <button id="btn-create-room" class="primary-btn" type="button">방 코드 생성</button>
+                        <button id="btn-copy-invite" class="secondary-btn" type="button">초대 링크 복사</button>
+                    </div>
+                </div>
+
+                <div class="p2p-box">
+                    <h3>방 참가하기 (2P 게스트)</h3>
+                    <p>친구에게 받은 4자리 숫자 코드를 입력하세요.</p>
+                    <input id="input-join-code" class="text-input" type="text" maxlength="4" placeholder="예: 4829" aria-label="4자리 방 코드 입력">
+                    <button id="btn-join-room" class="primary-btn" type="button">코드로 접속</button>
+                </div>
+            </div>
+
+            <div id="p2p-status-log" class="status-log">방 코드를 생성하거나 친구의 방 코드를 입력해 주세요.</div>
+
+            <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                <label style="font-size:13px;color:var(--text-secondary);">
+                    대전 맵:
+                    <select id="p2p-arena-select" class="icon-btn" style="margin-left:6px;padding:7px 10px;">
+                        <option value="0">쌍둥이 부유 성채</option>
+                        <option value="1">반발 자기장 협곡</option>
+                        <option value="2">무너지는 천공 가교</option>
+                        <option value="custom">내 에디터 커스텀 맵</option>
+                    </select>
+                </label>
+                <button id="btn-p2p-start" class="primary-btn" type="button" disabled>대전 시작 (호스트 전용)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Map Code Export / Import Modal -->
+    <div id="modal-share" class="modal-backdrop">
+        <div class="modal-panel">
+            <div class="modal-header">
+                <h2 class="modal-title">맵 코드 &amp; 공유 링크</h2>
+                <button id="btn-close-share" class="icon-btn" type="button">닫기</button>
+            </div>
+            <p class="modal-desc">현재 에디터에서 만든 성채가 문자열 코드로 압축되었습니다. 링크를 복사해 친구에게 보내거나 다른 사람의 코드를 붙여넣어 불러오세요.</p>
+            <textarea id="textarea-map-code" class="code-textarea" spellcheck="false" aria-label="맵 공유 코드"></textarea>
+            <div class="btn-row" style="margin-top:14px;">
+                <button id="btn-copy-map-url" class="primary-btn" type="button">공유 URL 복사</button>
+                <button id="btn-copy-map-code" class="secondary-btn" type="button">코드만 복사</button>
+                <button id="btn-load-map-code" class="secondary-btn" type="button">붙여넣은 코드 불러오기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Match / Stage Result Modal -->
+    <div id="modal-result" class="modal-backdrop">
+        <div class="modal-panel" style="max-width:440px;text-align:center;">
+            <h2 id="result-title" class="modal-title" style="font-size:26px;margin-bottom:8px;">목표 코어 완파!</h2>
+            <div id="result-stars" style="font-size:28px;color:var(--accent-amber);letter-spacing:6px;margin-bottom:10px;">★★★</div>
+            <p id="result-reason" class="modal-desc" style="margin-bottom:22px;">사용 탄약 1발</p>
+            <div class="btn-row" style="justify-content:center;">
+                <button id="btn-result-retry" class="secondary-btn" type="button">다시 도전</button>
+                <button id="btn-result-next" class="primary-btn" type="button">다음 스테이지</button>
+                <button id="btn-result-editor" class="primary-btn" type="button" style="display:none;">에디터로 돌아가기</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+</body>
+</html>
