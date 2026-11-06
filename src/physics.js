@@ -157,14 +157,15 @@ export class SiegeWorld {
         body.plugin = { kind: 'block', netId };
         Matter.Composite.add(this.engine.world, body);
 
+        const initialHp = this.mode === 'solo' && mat.id === 'core' ? 42 : mat.hp;
         const rec = {
             netId,
             body,
             matId: mat.id,
             w: spec.w,
             h: spec.h,
-            hp: mat.hp,
-            maxHp: mat.hp,
+            hp: initialHp,
+            maxHp: initialHp,
             team: spec.team || 0
         };
         this.blocks.set(netId, rec);
@@ -279,10 +280,10 @@ export class SiegeWorld {
         const Matter = window.Matter;
         const wep = WEAPONS[wepId] || WEAPONS[0];
         const netId = this.nextNetId++;
-        const radius = isMini ? 5.5 : wep.radius;
+        const radius = isMini ? 6.0 : wep.radius;
 
         const body = Matter.Bodies.circle(x, y, radius, {
-            density: wepId === 0 ? 0.011 : 0.006,
+            density: wepId === 0 ? 0.012 : 0.006,
             frictionAir: PROJ_AIR_FRICTION,
             restitution: wepId === 0 ? 0.35 : 0.55,
             friction: 0.1
@@ -299,6 +300,8 @@ export class SiegeWorld {
             radius,
             isMini,
             bornTick: this.tickCount,
+            lastVx: vx,
+            lastVy: vy,
             trail: []
         });
 
@@ -320,13 +323,13 @@ export class SiegeWorld {
 
         const pos = targetProj.body.position;
         if (targetProj.wepId === 1) {
-            // Mid-air Cluster burst: radial blast + 4 downward shrapnel bomblets
+            // Mid-air Cluster burst: radial blast + 5 downward shrapnel bomblets
             const px = pos.x;
             const py = pos.y;
             this.removeProjectile(targetProj.netId);
-            this.triggerExplosion(px, py, 145, 85, '#ef4444', 1.0);
-            for (let i = -1.5; i <= 1.5; i += 1) {
-                this.spawnProjectile(px + i * 8, py + 6, i * 4.2, 8.5 + Math.abs(i) * 1.5, 0, ownerTeam, true);
+            this.triggerExplosion(px, py, 165, 98, '#ef4444', 1.05);
+            for (let i = -2; i <= 2; i += 1) {
+                this.spawnProjectile(px + i * 9, py + 6, i * 3.6, 9.2 + Math.abs(i) * 1.1, 0, ownerTeam, true);
             }
             return true;
         }
@@ -340,6 +343,8 @@ export class SiegeWorld {
         if (targetProj.wepId === 3) {
             // Orbital vertical slam!
             window.Matter.Body.setVelocity(targetProj.body, { x: 0, y: 29 });
+            targetProj.lastVx = 0;
+            targetProj.lastVy = 29;
             this.burstParticles(pos.x, pos.y, '#a3e635', 16, 6);
             sound.fireWeapon(3);
             return true;
@@ -374,10 +379,16 @@ export class SiegeWorld {
             }
 
             // Ignore gentle settling contacts right after stage load
-            if (!this.settled || relSpeed < 5.2) continue;
+            if (!this.settled || relSpeed < 2.9) continue;
 
-            if (pa.kind === 'block') this.applyImpactDamageToBlock(pa.netId, relSpeed * 2.8);
-            if (pb.kind === 'block') this.applyImpactDamageToBlock(pb.netId, relSpeed * 2.8);
+            if (pa.kind === 'block') {
+                const massMulA = b.isStatic ? 1.35 : Math.min(3.4, Math.max(0.75, b.mass / Math.max(1, a.mass)));
+                this.applyImpactDamageToBlock(pa.netId, relSpeed * 3.6 * massMulA);
+            }
+            if (pb.kind === 'block') {
+                const massMulB = a.isStatic ? 1.35 : Math.min(3.4, Math.max(0.75, a.mass / Math.max(1, b.mass)));
+                this.applyImpactDamageToBlock(pb.netId, relSpeed * 3.6 * massMulB);
+            }
             if (pa.kind === 'tank' && relSpeed > 8.5) this.damageTank(pa.team, (relSpeed - 7) * 2.4);
             if (pb.kind === 'tank' && relSpeed > 8.5) this.damageTank(pb.team, (relSpeed - 7) * 2.4);
         }
@@ -411,21 +422,27 @@ export class SiegeWorld {
 
         if (proj.isMini) {
             this.removeProjectile(projNetId);
-            this.triggerExplosion(px, py, 75, 38, '#fb923c', 0.55);
+            this.triggerExplosion(px, py, 96, 52, '#fb923c', 0.65);
             return;
         }
 
         if (proj.wepId === 0) {
-            // Kinetic AP Shell
+            // Kinetic AP Shell — slices right through destroyed wood/barrel/core with preserved momentum
             if (otherMeta.kind === 'block') {
                 const blk = this.blocks.get(otherMeta.netId);
                 if (blk) {
-                    const mult = blk.matId === 'steel' ? 0.35 : 1.15;
-                    const dmg = Math.max(45, relSpeed * 4.5) * mult;
+                    const preSpeed = Math.max(relSpeed, Math.hypot(proj.lastVx || 0, proj.lastVy || 0));
+                    const mult = blk.matId === 'steel' ? 0.35 : 1.25;
+                    const dmg = Math.max(52, preSpeed * 4.8) * mult;
                     const destroyed = this.damageBlock(blk.netId, dmg);
-                    sound.impact(blk.matId, relSpeed);
+                    sound.impact(blk.matId, preSpeed);
                     this.burstParticles(px, py, '#f59e0b', 14, 5.5);
-                    if (!destroyed || blk.matId === 'bedrock' || blk.matId === 'steel') {
+                    if (destroyed && blk.matId !== 'bedrock' && blk.matId !== 'steel') {
+                        window.Matter.Body.setVelocity(proj.body, {
+                            x: (proj.lastVx || proj.body.velocity.x) * 0.82,
+                            y: (proj.lastVy || proj.body.velocity.y) * 0.82
+                        });
+                    } else {
                         this.removeProjectile(projNetId);
                     }
                     return;
@@ -446,7 +463,7 @@ export class SiegeWorld {
         if (proj.wepId === 1) {
             // Cluster HE Bomb
             this.removeProjectile(projNetId);
-            this.triggerExplosion(px, py, 160, 105, '#ef4444', 1.15);
+            this.triggerExplosion(px, py, 180, 120, '#ef4444', 1.18);
             return;
         }
 
@@ -460,7 +477,7 @@ export class SiegeWorld {
         if (proj.wepId === 3) {
             // Seismic Bunker-Buster (heavy armor-cracking shockwave)
             this.removeProjectile(projNetId);
-            this.triggerExplosion(px, py, 195, 165, '#a3e635', 1.35, true);
+            this.triggerExplosion(px, py, 215, 180, '#a3e635', 1.4, true);
         }
     }
 
@@ -468,13 +485,13 @@ export class SiegeWorld {
         this.vortices.push({
             x,
             y,
-            radius: 255,
+            radius: 290,
             bornTick: this.tickCount,
-            durationTicks: 128, // ~2.1s
+            durationTicks: 124, // ~2.05s
             ownerTeam
         });
         this.emitEvent({ t: 'vortex', x: Math.round(x), y: Math.round(y) });
-        sound.singularityVortex(2.1);
+        sound.singularityVortex(2.05);
         this.burstParticles(x, y, '#22d3ee', 24, 6);
     }
 
@@ -493,29 +510,30 @@ export class SiegeWorld {
         });
         sound.explode(intensity);
 
-        // Apply blast damage and radial impulse to blocks
+        // Apply blast damage and radial impulse to blocks (gentle power curve falloff for reliable chains)
         const toCheck = Array.from(this.blocks.values());
         for (const blk of toCheck) {
+            if (!this.blocks.has(blk.netId)) continue;
             const dx = blk.body.position.x - x;
             const dy = blk.body.position.y - y;
             const dist = Math.hypot(dx, dy);
             if (dist > radius) continue;
 
-            const falloff = 1 - dist / radius;
+            const falloff = Math.pow(Math.max(0, 1 - dist / radius), 0.7);
             if (!blk.body.isStatic) {
-                const forceMag = 0.16 * intensity * falloff * blk.body.mass;
+                const forceMag = 0.17 * intensity * falloff * blk.body.mass;
                 const nx = dist > 1 ? dx / dist : 0;
                 const ny = dist > 1 ? dy / dist : -1;
                 Matter.Body.applyForce(blk.body, blk.body.position, {
                     x: nx * forceMag,
-                    y: (ny - 0.35) * forceMag
+                    y: (ny - 0.38) * forceMag
                 });
             }
 
             if (blk.hp !== Infinity) {
                 let mult = 1.0;
                 if (blk.matId === 'steel') {
-                    mult = armorPiercing ? 0.95 : 0.32;
+                    mult = armorPiercing ? 0.95 : 0.34;
                 }
                 this.damageBlock(blk.netId, maxDamage * falloff * mult);
             }
@@ -564,7 +582,7 @@ export class SiegeWorld {
         this.burstParticles(pos.x, pos.y, mat.color, 16, 5.5);
 
         if (blk.matId === 'barrel') {
-            this.triggerExplosion(pos.x, pos.y, 175, 125, '#f97316', 1.25);
+            this.triggerExplosion(pos.x, pos.y, 215, 145, '#f97316', 1.28);
         } else if (blk.matId === 'core') {
             sound.coreShatter();
             this.slowMoTicks = 26;
@@ -629,6 +647,12 @@ export class SiegeWorld {
             this.settled = true;
         }
 
+        // Record pre-step projectile velocities for true AP piercing
+        for (const proj of this.projectiles.values()) {
+            proj.lastVx = proj.body.velocity.x;
+            proj.lastVy = proj.body.velocity.y;
+        }
+
         // Process active Singularity Gravity Vortices
         this.stepVortices();
 
@@ -678,7 +702,7 @@ export class SiegeWorld {
             if (age >= v.durationTicks) {
                 // Violent final implosion-burst!
                 this.vortices.splice(i, 1);
-                this.triggerExplosion(v.x, v.y, 175, 75, '#22d3ee', 1.1);
+                this.triggerExplosion(v.x, v.y, 225, 138, '#22d3ee', 1.28);
                 continue;
             }
 
@@ -697,17 +721,21 @@ export class SiegeWorld {
                 });
             }
 
-            for (const blk of this.blocks.values()) {
+            const pulledBlocks = Array.from(this.blocks.values());
+            for (const blk of pulledBlocks) {
                 if (blk.body.isStatic) continue;
                 const dx = v.x - blk.body.position.x;
                 const dy = v.y - blk.body.position.y;
                 const dist = Math.hypot(dx, dy);
-                if (dist > 14 && dist < v.radius) {
-                    const pull = 0.0042 * (1 - dist / v.radius * 0.5) * blk.body.mass;
+                if (dist > 12 && dist < v.radius) {
+                    const pull = 0.0056 * (1 - (dist / v.radius) * 0.45) * blk.body.mass;
                     Matter.Body.applyForce(blk.body, blk.body.position, {
                         x: (dx / dist) * pull,
                         y: (dy / dist) * pull
                     });
+                }
+                if (dist < 82 && age % 10 === 0 && blk.hp !== Infinity && blk.matId !== 'steel') {
+                    this.damageBlock(blk.netId, 10);
                 }
             }
 
@@ -767,11 +795,11 @@ export class SiegeWorld {
             if (remainingCores === 0) {
                 this.matchEnded = true;
                 const extraShots = Math.max(0, this.shotsFired - this.parShots);
-                const stars = extraShots === 0 ? 3 : extraShots === 1 ? 2 : 1;
+                const stars = extraShots === 0 ? 3 : extraShots <= 2 ? 2 : 1;
                 this.winnerInfo = {
                     winnerTeam: 1,
                     title: '목표 코어 완파!',
-                    reason: `사용 탄약 ${this.shotsFired}발 (기준 ${this.parShots}발)`,
+                    reason: `사용 탄약 ${this.shotsFired}발 (★3 기준: ${this.parShots}발 이내)`,
                     stars
                 };
                 sound.victory();
