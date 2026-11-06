@@ -21,7 +21,7 @@ export const MATERIALS = {
         label: '목재 보',
         color: '#b7793e',
         stroke: '#e0a463',
-        hp: 55,
+        hp: 44,
         density: 0.0014,
         friction: 0.75,
         restitution: 0.18,
@@ -32,8 +32,8 @@ export const MATERIALS = {
         label: '석재 블록',
         color: '#677487',
         stroke: '#94a3b8',
-        hp: 140,
-        density: 0.0032,
+        hp: 135,
+        density: 0.0034,
         friction: 0.82,
         restitution: 0.12,
         isStatic: false
@@ -54,7 +54,7 @@ export const MATERIALS = {
         label: '폭발 드럼통',
         color: '#dc442c',
         stroke: '#fca5a5',
-        hp: 26,
+        hp: 18,
         density: 0.0022,
         friction: 0.72,
         restitution: 0.2,
@@ -76,7 +76,7 @@ export const MATERIALS = {
         label: '에너지 코어',
         color: '#f59e0b',
         stroke: '#fef08a',
-        hp: 70,
+        hp: 62,
         density: 0.0025,
         friction: 0.78,
         restitution: 0.25,
@@ -142,146 +142,153 @@ export const SOLO_STAGES = [
     {
         id: 'solo-1',
         name: '교량 지지대 붕괴',
-        hint: '하단 목재 기둥을 끊어 상부 석재 상판의 무게로 코어를 한 번에 압사시키세요.',
+        hint: '하단 목재 기둥이나 중앙 드럼통을 노려 교량을 무너뜨리세요. (★3 기준: 2발 이내)',
         launcher: { x: 210, y: 650 },
-        ammo: [3, 1, 0, 0],
-        parShots: 1,
+        ammo: [4, 1, 0, 0],
+        parShots: 2,
         blocks: [
             b('bedrock', 210, 710, 220, 44),
             b('bedrock', 1080, 740, 560, 48),
             // Left and right wooden pillars on topY = 716
-            onSurface('wood', 930, 716, 26, 150),
-            onSurface('wood', 1230, 716, 26, 150),
+            onSurface('wood', 935, 716, 26, 150),
+            onSurface('wood', 1225, 716, 26, 150),
             onSurface('barrel', 1080, 716, 36, 48),
-            onSurface('core', 1015, 716, 40, 40, 2),
-            onSurface('core', 1145, 716, 40, 40, 2),
+            onSurface('core', 1010, 716, 40, 40, 2),
+            onSurface('core', 1150, 716, 40, 40, 2),
             // Heavy stone deck resting on pillars (topY = 716 - 150 = 566)
-            onSurface('stone', 1080, 566, 360, 34),
-            onSurface('stone', 1080, 532, 220, 32),
-            onSurface('core', 1080, 500, 40, 40, 2)
+            onSurface('stone', 1080, 566, 350, 34),
+            // Upper canopy whose heavy cap crushes the 3rd core on collapse
+            onSurface('wood', 1020, 532, 22, 86),
+            onSurface('wood', 1140, 532, 22, 86),
+            onSurface('core', 1080, 532, 40, 40, 2),
+            onSurface('stone', 1080, 446, 160, 30)
         ]
     },
     {
         id: 'solo-2',
         name: '연쇄 유폭 벙커',
-        hint: '정면 강철 방벽 뒤의 드럼통을 곡사포나 고폭탄으로 유폭시키세요.',
+        hint: '강철 방벽 너머로 [2] 고폭탄을 넘기거나 공중 우클릭 분열로 드럼통 연쇄 유폭을 일으키세요. (★3 기준: 2발 이내)',
         launcher: { x: 200, y: 660 },
-        ammo: [2, 2, 0, 1],
+        ammo: [2, 3, 0, 1],
         parShots: 2,
         blocks: [
             b('bedrock', 200, 720, 220, 44),
             b('bedrock', 1100, 750, 620, 48),
             // Front steel shield wall (topY = 726)
-            onSurface('steel', 875, 726, 36, 190),
-            // Inner explosive chain & stone bunker
+            onSurface('steel', 875, 726, 36, 185),
+            // Closely linked explosive chain (< 165px spacing) & wood roof supports
             onSurface('barrel', 965, 726, 36, 48),
             onSurface('core', 1035, 726, 40, 40, 2),
-            onSurface('wood', 1105, 726, 24, 130),
-            onSurface('barrel', 1175, 726, 36, 48),
-            onSurface('core', 1250, 726, 40, 40, 2),
-            onSurface('stone', 1330, 726, 34, 130),
+            onSurface('wood', 1095, 726, 22, 130),
+            onSurface('barrel', 1145, 726, 36, 48),
+            onSurface('core', 1220, 726, 40, 40, 2),
+            onSurface('barrel', 1285, 726, 36, 48),
+            onSurface('wood', 1340, 726, 24, 130),
             // Upper bunker roof (topY = 726 - 130 = 596)
-            onSurface('stone', 1218, 596, 260, 28),
-            onSurface('barrel', 1185, 568, 36, 48),
-            onSurface('core', 1255, 568, 40, 40, 2)
+            onSurface('stone', 1218, 596, 275, 28),
+            onSurface('barrel', 1165, 568, 36, 48),
+            onSurface('core', 1235, 568, 40, 40, 2)
         ]
     },
     {
         id: 'solo-3',
         name: '특이점 중력 추출',
-        hint: '[3] 블랙홀 중력탄을 수직 벙커 위에서 우클릭 공중 기폭해 코어와 드럼통을 끌어당기세요.',
+        hint: '[3] 중력탄을 두 벙커 사이 상공에서 우클릭 기폭해 코어와 드럼통을 한데 끌어당기세요. (★3 기준: 2발 이내)',
         launcher: { x: 200, y: 640 },
-        ammo: [1, 1, 3, 0],
+        ammo: [2, 1, 3, 0],
         parShots: 2,
         blocks: [
             b('bedrock', 200, 700, 210, 44),
-            b('bedrock', 1080, 760, 620, 48),
-            // Deep steel U-pits (topY = 736)
-            onSurface('steel', 860, 736, 36, 180),
-            onSurface('steel', 1060, 736, 36, 180),
-            onSurface('steel', 1280, 736, 36, 180),
-            onSurface('core', 945, 736, 40, 40, 2),
+            b('bedrock', 1065, 760, 580, 48),
+            // Compact steel U-pits (topY = 736) within singularity pull range
+            onSurface('steel', 875, 736, 36, 170),
+            onSurface('steel', 1055, 736, 34, 165),
+            onSurface('steel', 1235, 736, 36, 170),
+            onSurface('core', 940, 736, 40, 40, 2),
             onSurface('barrel', 995, 736, 34, 46),
-            onSurface('barrel', 1145, 736, 34, 46),
-            onSurface('core', 1205, 736, 40, 40, 2)
+            onSurface('barrel', 1115, 736, 34, 46),
+            onSurface('core', 1170, 736, 40, 40, 2)
         ]
     },
     {
         id: 'solo-4',
         name: '도미노 거석 회랑',
-        hint: '첫 번째 석재 기둥 상단을 철갑탄으로 타격해 연쇄 전도를 일으키세요.',
+        hint: '첫 번째 석재 기둥 상단을 맞추면 도미노가 드럼통 성소를 연쇄 폭파합니다. (★3 기준: 2발 이내)',
         launcher: { x: 185, y: 650 },
-        ammo: [3, 1, 0, 1],
-        parShots: 1,
+        ammo: [4, 1, 0, 1],
+        parShots: 2,
         blocks: [
             b('bedrock', 185, 710, 200, 44),
             b('bedrock', 1040, 750, 780, 48),
-            // Tall domino monoliths on topY = 726
-            onSurface('stone', 740, 726, 28, 210),
-            onSurface('stone', 855, 726, 28, 210),
-            onSurface('stone', 970, 726, 28, 210),
-            onSurface('stone', 1085, 726, 28, 210),
-            // Target fragile wood shrine at the end
-            onSurface('barrel', 1185, 726, 36, 48),
-            onSurface('wood', 1245, 726, 22, 120),
-            onSurface('wood', 1355, 726, 22, 120),
-            onSurface('core', 1300, 726, 40, 40, 2),
-            onSurface('stone', 1300, 606, 150, 26),
-            onSurface('core', 1300, 580, 40, 40, 2)
+            // Tightly spaced tall domino monoliths on topY = 726 (dx = 100, h = 220)
+            onSurface('stone', 750, 726, 28, 220),
+            onSurface('stone', 850, 726, 28, 220),
+            onSurface('stone', 950, 726, 28, 220),
+            onSurface('stone', 1050, 726, 28, 220),
+            // Explosive wood shrine right at the domino impact zone
+            onSurface('barrel', 1150, 726, 36, 48),
+            onSurface('wood', 1205, 726, 20, 120),
+            onSurface('core', 1260, 726, 40, 40, 2),
+            onSurface('barrel', 1315, 726, 36, 48),
+            onSurface('wood', 1365, 726, 20, 120),
+            onSurface('stone', 1285, 606, 185, 28),
+            onSurface('core', 1260, 578, 40, 40, 2),
+            onSurface('barrel', 1315, 578, 34, 46)
         ]
     },
     {
         id: 'solo-5',
         name: '반발 패드 굴절 사격',
-        hint: '공중의 청록색 반발 패드에 포탄을 튕겨 강철 천장 너머의 코어를 타격하세요.',
+        hint: '상공의 청록색 반발 패드에 포탄을 튕겨 방벽 너머 드럼통을 맞추세요. (★3 기준: 3발 이내)',
         launcher: { x: 195, y: 660 },
-        ammo: [3, 2, 1, 0],
-        parShots: 2,
+        ammo: [4, 3, 1, 0],
+        parShots: 3,
         blocks: [
             b('bedrock', 195, 720, 210, 44),
             b('bedrock', 1120, 760, 540, 48),
-            // Front impenetrable bedrock/steel wall
+            // Front impenetrable bedrock wall
             b('bedrock', 870, 600, 40, 300),
-            // Angled repulsor pads in the sky
-            b('bumper', 920, 220, 170, 24, 26),
-            b('bumper', 1270, 250, 170, 24, -28),
-            // Vault targets on topY = 736
-            onSurface('barrel', 1030, 736, 36, 48),
+            // Wide angled repulsor pads in the sky
+            b('bumper', 925, 225, 210, 26, 25),
+            b('bumper', 1265, 250, 210, 26, -27),
+            // Vault targets linked by center barrel on topY = 736
+            onSurface('barrel', 1025, 736, 36, 48),
             onSurface('core', 1095, 736, 40, 40, 2),
-            onSurface('wood', 1165, 736, 24, 120),
-            onSurface('core', 1240, 736, 40, 40, 2),
+            onSurface('barrel', 1165, 736, 36, 48),
+            onSurface('core', 1235, 736, 40, 40, 2),
             onSurface('barrel', 1305, 736, 36, 48)
         ]
     },
     {
         id: 'solo-6',
         name: '아이언 시타델',
-        hint: '지진 파쇄탄과 블랙홀 중력탄, 고폭탄을 조합해 다층 요새의 코어 3개를 모두 파괴하세요.',
+        hint: '[4] 파쇄탄 우클릭 급강하로 지붕을 뚫고 중력탄·고폭탄으로 요새를 완파하세요. (★3 기준: 4발 이내)',
         launcher: { x: 185, y: 650 },
-        ammo: [2, 2, 2, 2],
-        parShots: 3,
+        ammo: [2, 3, 2, 2],
+        parShots: 4,
         blocks: [
             b('bedrock', 185, 710, 200, 44),
             b('bedrock', 1110, 770, 640, 48),
             // Outer defense (topY = 746)
             onSurface('steel', 860, 746, 34, 150),
-            onSurface('barrel', 925, 746, 36, 48),
-            // First floor fortress
-            onSurface('stone', 990, 746, 28, 140),
+            onSurface('barrel', 930, 746, 36, 48),
+            // First floor fortress linked with barrels
+            onSurface('wood', 995, 746, 26, 140),
             onSurface('core', 1065, 746, 40, 40, 2),
-            onSurface('stone', 1140, 746, 28, 140),
-            onSurface('barrel', 1215, 746, 36, 48),
-            onSurface('core', 1285, 746, 40, 40, 2),
-            onSurface('stone', 1360, 746, 28, 140),
+            onSurface('barrel', 1135, 746, 36, 48),
+            onSurface('wood', 1195, 746, 26, 140),
+            onSurface('barrel', 1255, 746, 36, 48),
+            onSurface('core', 1320, 746, 40, 40, 2),
+            onSurface('stone', 1380, 746, 28, 140),
             // Second floor deck (topY = 746 - 140 = 606)
-            onSurface('stone', 1065, 606, 190, 28),
-            onSurface('stone', 1250, 606, 240, 28),
+            onSurface('stone', 1095, 606, 225, 28),
+            onSurface('stone', 1290, 606, 205, 28),
             // Upper citadel tower (topY = 578)
             onSurface('wood', 1095, 578, 24, 110),
-            onSurface('wood', 1235, 578, 24, 110),
-            onSurface('barrel', 1140, 578, 34, 46),
-            onSurface('core', 1190, 578, 40, 40, 2),
-            onSurface('steel', 1165, 468, 190, 26)
+            onSurface('wood', 1245, 578, 24, 110),
+            onSurface('barrel', 1145, 578, 34, 46),
+            onSurface('core', 1200, 578, 40, 40, 2),
+            onSurface('stone', 1170, 468, 190, 26)
         ]
     }
 ];
