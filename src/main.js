@@ -621,8 +621,8 @@ class BreakerApp {
             for (const blk of this.world.blocks.values()) {
                 if (blk.matId === 'core') cores++;
             }
-            subLabel.textContent = '남은 코어';
-            subVal.textContent = `${cores}개`;
+            subLabel.textContent = `남은 코어 · ★3 (${this.world.parShots}발 이내)`;
+            subVal.textContent = `${cores}개 · ${this.world.shotsFired}/${this.world.parShots}발`;
         } else {
             subLabel.textContent = '내 진영';
             subVal.textContent = this.localTeam === 1 ? '1P (좌측)' : '2P (우측)';
