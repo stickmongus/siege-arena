@@ -32,6 +32,13 @@ class BreakerApp {
         this.resultShownForMatch = false;
 
         this.keys = {};
+        this.touchMoveLeft = false;
+        this.touchMoveRight = false;
+        this.touchJump = false;
+        this.activeTouches = new Map();
+        this.aimPointerId = null;
+        this.lastPinchMidX = null;
+
         this.localTeam = 1; // 1 for solo/AI/P2P-host, 2 for P2P-guest
         this.lastNetSentAt = 0;
         this.soloStars = this.loadStars();
@@ -60,6 +67,9 @@ class BreakerApp {
         this.handleInitialURLParams();
 
         window.addEventListener('resize', () => this.world.resize());
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => this.world.resize(), 120);
+        });
         requestAnimationFrame((ts) => this.loop(ts));
     }
 
@@ -96,6 +106,39 @@ class BreakerApp {
         log.style.color = isErr ? 'var(--accent-red)' : 'var(--accent-teal)';
     }
 
+    bindHoldButton(btnId, onChange) {
+        const btn = document.getElementById(btnId);
+        if (!btn) return;
+        const activeIds = new Set();
+        const release = (e) => {
+            if (activeIds.delete(e.pointerId) && activeIds.size === 0) {
+                btn.classList.remove('pressed');
+                onChange(false);
+            }
+        };
+        btn.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            sound.ensureContext();
+            try {
+                btn.setPointerCapture(e.pointerId);
+            } catch (_) {}
+            activeIds.add(e.pointerId);
+            btn.classList.add('pressed');
+            onChange(true);
+        });
+        btn.addEventListener('pointerup', release);
+        btn.addEventListener('pointercancel', release);
+        btn.addEventListener('lostpointercapture', release);
+        btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+
+    syncEditorEraseBtn() {
+        const btn = document.getElementById('btn-editor-erase');
+        if (!btn) return;
+        btn.textContent = this.editor.eraseMode ? '삭제 모드 ON' : '삭제 모드 OFF';
+        btn.classList.toggle('danger-toggle', this.editor.eraseMode);
+    }
+
     bindUI() {
         // Mode tabs
         document.getElementById('tab-solo').addEventListener('click', () => {
@@ -116,6 +159,17 @@ class BreakerApp {
         });
 
         // Header actions
+        document.getElementById('btn-zoom-view').addEventListener('click', (e) => {
+            const next = !this.world.zoomMode;
+            this.world.setZoomMode(next);
+            e.currentTarget.textContent = next ? '시야 전체' : '시야 확대';
+            e.currentTarget.classList.toggle('active-toggle', next);
+            document.getElementById('zoom-pan-bar').classList.toggle('visible', next);
+            sound.uiClick();
+        });
+        document.getElementById('zoom-pan-slider').addEventListener('input', (e) => {
+            this.world.setCameraPanNorm(Number(e.target.value) / 100);
+        });
         document.getElementById('btn-stage-menu').addEventListener('click', () => {
             this.populateStageModal();
             this.openModal('modal-stages');
@@ -129,6 +183,20 @@ class BreakerApp {
             this.testingFromEditor = false;
             this.enterEditorMode();
         });
+
+        // Floating Mid-Air Special Detonation Button
+        const specialBtn = document.getElementById('btn-midair-special');
+        specialBtn.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            sound.ensureContext();
+            this.triggerLocalMidAirSpecial();
+        });
+
+        // Mobile Duel Tank Touch D-Pad
+        this.bindHoldButton('touch-left', (pressed) => { this.touchMoveLeft = pressed; });
+        this.bindHoldButton('touch-right', (pressed) => { this.touchMoveRight = pressed; });
+        this.bindHoldButton('touch-jump', (pressed) => { this.touchJump = pressed; });
 
         // Weapon buttons
         for (let i = 0; i < 4; i++) {
@@ -169,7 +237,14 @@ class BreakerApp {
         });
 
         // Editor controls
+        document.getElementById('btn-editor-erase').addEventListener('click', () => {
+            this.editor.eraseMode = !this.editor.eraseMode;
+            this.syncEditorEraseBtn();
+            sound.uiClick();
+        });
         document.getElementById('btn-shape-cycle').addEventListener('click', (e) => {
+            this.editor.eraseMode = false;
+            this.syncEditorEraseBtn();
             this.editor.presetIdx = (this.editor.presetIdx + 1) % SHAPE_PRESETS.length;
             e.currentTarget.textContent = `크기: ${SHAPE_PRESETS[this.editor.presetIdx].label}`;
             sound.uiClick();
@@ -248,9 +323,11 @@ class BreakerApp {
             this.enterEditorMode();
         });
 
-        // Canvas pointer & keyboard events
-        this.canvas.addEventListener('mousemove', (e) => this.onCanvasMove(e));
-        this.canvas.addEventListener('mousedown', (e) => this.onCanvasDown(e));
+        // Unified Pointer Events (Mouse + Multi-Touch) & Keyboard
+        this.canvas.addEventListener('pointerdown', (e) => this.onCanvasPointerDown(e));
+        this.canvas.addEventListener('pointermove', (e) => this.onCanvasPointerMove(e));
+        this.canvas.addEventListener('pointerup', (e) => this.onCanvasPointerUp(e));
+        this.canvas.addEventListener('pointercancel', (e) => this.onCanvasPointerCancel(e));
         this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
         this.canvas.addEventListener('wheel', (e) => {
             if (this.activeMode === 'editor') {
@@ -261,7 +338,15 @@ class BreakerApp {
 
         window.addEventListener('keydown', (e) => this.onKeyDown(e));
         window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
-        window.addEventListener('blur', () => { this.keys = {}; });
+        window.addEventListener('blur', () => {
+            this.keys = {};
+            this.touchMoveLeft = false;
+            this.touchMoveRight = false;
+            this.touchJump = false;
+            this.activeTouches.clear();
+            this.aimPointerId = null;
+            this.world.touchAimState.active = false;
+        });
     }
 
     buildEditorPalette() {
@@ -276,6 +361,8 @@ class BreakerApp {
             btn.innerHTML = `<span class="swatch" style="background:${mat.color}"></span>${mat.label}`;
             btn.addEventListener('click', () => {
                 this.editor.selectedMaterial = matId;
+                this.editor.eraseMode = false;
+                this.syncEditorEraseBtn();
                 wrap.querySelectorAll('.brush-btn').forEach((b) => b.classList.toggle('selected', b.dataset.mat === matId));
                 sound.uiClick();
             });
@@ -361,10 +448,25 @@ class BreakerApp {
         });
     }
 
+    resetTouchState() {
+        this.touchMoveLeft = false;
+        this.touchMoveRight = false;
+        this.touchJump = false;
+        this.activeTouches.clear();
+        this.aimPointerId = null;
+        this.lastPinchMidX = null;
+        this.world.touchAimState.active = false;
+        this.world.touchAimState.cancelled = false;
+        ['touch-left', 'touch-right', 'touch-jump'].forEach((id) => {
+            document.getElementById(id)?.classList.remove('pressed');
+        });
+    }
+
     switchMode(mode, stageData, isClientGuest = false) {
         this.activeMode = mode;
         this.currentStageData = stageData;
         this.resultShownForMatch = false;
+        this.resetTouchState();
         this.closeModal('modal-result');
         this.setActiveTabHighlight(mode);
 
@@ -377,37 +479,44 @@ class BreakerApp {
             this.botAI.reset(stageData.p2Spawn ? stageData.p2Spawn.x : 1250);
         }
 
+        const isDuel = mode === 'ai' || mode === 'p2p';
         document.getElementById('weapon-dock').classList.remove('hidden');
         document.getElementById('editor-dock').classList.remove('visible');
-        document.getElementById('duel-vitals-bar').classList.toggle('visible', mode === 'ai' || mode === 'p2p');
+        document.getElementById('duel-vitals-bar').classList.toggle('visible', isDuel);
+        document.getElementById('mobile-duel-pad').classList.toggle('visible', isDuel);
         document.getElementById('btn-editor-return').style.display = this.testingFromEditor ? 'inline-block' : 'none';
         document.getElementById('p2-name-label').textContent = mode === 'p2p' ? '2P TEAL' : 'AI BOT';
 
         const hintEl = document.getElementById('controls-hint');
         if (mode === 'solo') {
-            hintEl.textContent = '마우스 거리: 발사 세기 · 좌클릭: 포탄 발사 · 우클릭/Space: 특수탄 공중 기폭 · 1~4: 탄종 선택';
+            hintEl.textContent = '마우스/터치 드래그: 조준 · 클릭/손 떼기: 발사 · 우클릭/Space/기폭 버튼: 특수탄 기폭 · 1~4: 탄종 선택';
         } else {
-            hintEl.textContent = 'A/D: 전차 이동 · W/Space: 점프 · 좌클릭: 포탄 발사 · 우클릭/E: 특수탄 공중 기폭 · 1~4: 탄종 선택';
+            hintEl.textContent = 'A/D 또는 좌하단 패드: 이동 · W/점프: 도약 · 드래그/좌클릭: 발사 · 우클릭/E/기폭 버튼: 특수탄 기폭';
         }
 
         if (stageData.hint) {
             this.showToast(stageData.hint);
         }
         this.syncHUD();
+        this.syncSpecialButton();
     }
 
     enterEditorMode() {
         this.activeMode = 'editor';
         this.resultShownForMatch = false;
+        this.resetTouchState();
         this.closeModal('modal-result');
         this.setActiveTabHighlight('editor');
+        this.syncEditorEraseBtn();
 
         document.getElementById('weapon-dock').classList.add('hidden');
         document.getElementById('editor-dock').classList.add('visible');
         document.getElementById('duel-vitals-bar').classList.remove('visible');
+        document.getElementById('mobile-duel-pad').classList.remove('visible');
+        document.getElementById('btn-midair-special').classList.remove('visible');
         document.getElementById('btn-editor-return').style.display = 'none';
         document.getElementById('controls-hint').textContent =
-            '좌클릭: 블록 배치 · 우클릭: 블록 삭제 · 마우스 휠 또는 Q/E: 회전 · 상단/하단 버튼으로 대칭 배치 및 즉시 테스트';
+            '터치/좌클릭: 블록 배치 · 우클릭/삭제 모드: 블록 삭제 · 휠 또는 회전 버튼(Q/E): 각도 조절';
 
         this.refreshEditorPreviewWorld();
     }
@@ -483,63 +592,26 @@ class BreakerApp {
         this.syncHUD();
     }
 
-    onCanvasMove(e) {
-        const pt = this.world.screenToWorld(e.clientX, e.clientY);
-        if (this.activeMode === 'editor') {
-            this.editor.cursorWorld = pt;
-            return;
+    triggerLocalMidAirSpecial() {
+        if (this.world.matchEnded || this.activeMode === 'editor') return false;
+        if (this.activeMode === 'p2p' && this.world.isClientGuest) {
+            this.p2p.send({ t: 'in', midAir: true, w: this.world.selectedWeapon });
+            return true;
         }
-        if (this.activeMode === 'solo') {
-            this.world.launcher.aimX = pt.x;
-            this.world.launcher.aimY = pt.y;
-        } else {
-            const myTank = this.world.tanks[this.localTeam];
-            if (myTank) {
-                myTank.aimX = pt.x;
-                myTank.aimY = pt.y;
-            }
-        }
+        return this.world.triggerMidAirSpecial(this.localTeam);
     }
 
-    onCanvasDown(e) {
-        sound.ensureContext();
-        const pt = this.world.screenToWorld(e.clientX, e.clientY);
-
-        if (this.activeMode === 'editor') {
-            if (e.button === 0) {
-                this.editor.placeAt(pt.x, pt.y);
-                this.refreshEditorPreviewWorld();
-            } else if (e.button === 2) {
-                if (this.editor.removeAt(pt.x, pt.y)) {
-                    this.refreshEditorPreviewWorld();
-                }
-            }
-            return;
-        }
-
-        if (this.world.matchEnded) return;
-
-        // Right-click triggers mid-air detonation / slam!
-        if (e.button === 2) {
-            if (this.activeMode === 'p2p' && this.world.isClientGuest) {
-                this.p2p.send({ t: 'in', midAir: true, ax: pt.x, ay: pt.y, w: this.world.selectedWeapon });
-            } else {
-                this.world.triggerMidAirSpecial(this.localTeam);
-            }
-            return;
-        }
-
-        if (e.button !== 0) return;
-
+    fireTowardWorldPoint(wx, wy) {
+        if (this.world.matchEnded || this.activeMode === 'editor') return;
         if (this.activeMode === 'solo') {
-            this.world.fireFromLauncher(pt.x, pt.y, this.world.selectedWeapon);
+            this.world.fireFromLauncher(wx, wy, this.world.selectedWeapon);
             this.syncHUD();
         } else if (this.activeMode === 'ai' || (this.activeMode === 'p2p' && !this.world.isClientGuest)) {
             const myTank = this.world.tanks[1];
             if (myTank) {
-                myTank.aimX = pt.x;
-                myTank.aimY = pt.y;
-                this.world.fireFromTank(1, pt.x, pt.y, myTank.wepId);
+                myTank.aimX = wx;
+                myTank.aimY = wy;
+                this.world.fireFromTank(1, wx, wy, myTank.wepId);
             }
         } else if (this.activeMode === 'p2p' && this.world.isClientGuest) {
             const myTank = this.world.tanks[2];
@@ -553,11 +625,187 @@ class BreakerApp {
                 t: 'in',
                 mx: this.getLocalMoveAxis(),
                 jp: this.getLocalJumpPressed(),
-                ax: Math.round(pt.x),
-                ay: Math.round(pt.y),
+                ax: Math.round(wx),
+                ay: Math.round(wy),
                 w: wepId,
                 fire: true
             });
+        }
+    }
+
+    updateAimFromPoint(pt, checkCancelZone = false) {
+        let ox = 200;
+        let oy = 634;
+        if (this.activeMode === 'solo') {
+            this.world.launcher.aimX = pt.x;
+            this.world.launcher.aimY = pt.y;
+            ox = this.world.launcher.x;
+            oy = this.world.launcher.y - 16;
+        } else {
+            const myTank = this.world.tanks[this.localTeam];
+            if (myTank) {
+                myTank.aimX = pt.x;
+                myTank.aimY = pt.y;
+                ox = myTank.body.position.x;
+                oy = myTank.body.position.y - 10;
+            }
+        }
+        if (checkCancelZone) {
+            const nearOrigin = Math.hypot(pt.x - ox, pt.y - oy) < 58;
+            const behindSoloLauncher = this.activeMode === 'solo' && pt.x < ox - 36;
+            this.world.touchAimState.cancelled = nearOrigin || behindSoloLauncher;
+        }
+    }
+
+    onCanvasPointerDown(e) {
+        sound.ensureContext();
+        const pt = this.world.screenToWorld(e.clientX, e.clientY);
+
+        // Desktop Mouse: instant click-to-fire & right-click detonate/erase
+        if (e.pointerType === 'mouse') {
+            if (this.activeMode === 'editor') {
+                if (e.button === 2 || (e.button === 0 && this.editor.eraseMode)) {
+                    if (this.editor.removeAt(pt.x, pt.y)) {
+                        this.refreshEditorPreviewWorld();
+                    }
+                } else if (e.button === 0) {
+                    this.editor.placeAt(pt.x, pt.y);
+                    this.refreshEditorPreviewWorld();
+                }
+                return;
+            }
+            if (this.world.matchEnded) return;
+            if (e.button === 2) {
+                this.triggerLocalMidAirSpecial();
+                return;
+            }
+            if (e.button === 0) {
+                this.updateAimFromPoint(pt, false);
+                this.fireTowardWorldPoint(pt.x, pt.y);
+            }
+            return;
+        }
+
+        // Touch / Stylus input
+        e.preventDefault();
+        try {
+            this.canvas.setPointerCapture(e.pointerId);
+        } catch (_) {}
+        this.activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+        // 2-finger gesture pans zoomed camera and cancels any pending 1-finger shot/placement
+        if (this.activeTouches.size >= 2) {
+            this.aimPointerId = null;
+            this.world.touchAimState.active = false;
+            this.world.touchAimState.cancelled = false;
+            const pts = Array.from(this.activeTouches.values());
+            this.lastPinchMidX = (pts[0].x + pts[1].x) * 0.5;
+            return;
+        }
+
+        if (this.activeMode === 'editor') {
+            this.aimPointerId = e.pointerId;
+            this.editor.cursorWorld = pt;
+            return;
+        }
+
+        if (this.world.matchEnded) return;
+
+        // If player's special projectile is currently airborne, tapping canvas triggers mid-air detonation!
+        if (this.world.getActiveSpecialProjectile(this.localTeam)) {
+            this.triggerLocalMidAirSpecial();
+            return;
+        }
+
+        // Begin Touch Drag-to-Aim (fires on release)
+        this.aimPointerId = e.pointerId;
+        this.world.touchAimState.active = true;
+        this.updateAimFromPoint(pt, true);
+    }
+
+    onCanvasPointerMove(e) {
+        const pt = this.world.screenToWorld(e.clientX, e.clientY);
+
+        if (e.pointerType === 'mouse') {
+            if (this.activeMode === 'editor') {
+                this.editor.cursorWorld = pt;
+            } else {
+                this.updateAimFromPoint(pt, false);
+            }
+            return;
+        }
+
+        if (this.activeTouches.has(e.pointerId)) {
+            this.activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        }
+
+        if (this.activeTouches.size >= 2) {
+            const pts = Array.from(this.activeTouches.values());
+            const midX = (pts[0].x + pts[1].x) * 0.5;
+            if (this.lastPinchMidX !== null && this.world.zoomMode) {
+                const norm = this.world.panCameraByPixels(midX - this.lastPinchMidX);
+                const slider = document.getElementById('zoom-pan-slider');
+                if (slider) slider.value = String(Math.round(norm * 100));
+            }
+            this.lastPinchMidX = midX;
+            return;
+        }
+
+        if (e.pointerId !== this.aimPointerId) return;
+
+        if (this.activeMode === 'editor') {
+            this.editor.cursorWorld = pt;
+            return;
+        }
+
+        this.updateAimFromPoint(pt, true);
+    }
+
+    onCanvasPointerUp(e) {
+        if (e.pointerType === 'mouse') return;
+
+        this.activeTouches.delete(e.pointerId);
+        if (this.activeTouches.size < 2) {
+            this.lastPinchMidX = null;
+        }
+
+        if (e.pointerId !== this.aimPointerId) return;
+        this.aimPointerId = null;
+
+        const pt = this.world.screenToWorld(e.clientX, e.clientY);
+
+        if (this.activeMode === 'editor') {
+            this.editor.cursorWorld = pt;
+            if (this.editor.eraseMode) {
+                if (this.editor.removeAt(pt.x, pt.y)) {
+                    this.refreshEditorPreviewWorld();
+                }
+            } else {
+                this.editor.placeAt(pt.x, pt.y);
+                this.refreshEditorPreviewWorld();
+            }
+            return;
+        }
+
+        this.updateAimFromPoint(pt, true);
+        const wasCancelled = this.world.touchAimState.cancelled;
+        this.world.touchAimState.active = false;
+        this.world.touchAimState.cancelled = false;
+
+        if (!wasCancelled && !this.world.matchEnded) {
+            this.fireTowardWorldPoint(pt.x, pt.y);
+        }
+    }
+
+    onCanvasPointerCancel(e) {
+        this.activeTouches.delete(e.pointerId);
+        if (this.activeTouches.size < 2) {
+            this.lastPinchMidX = null;
+        }
+        if (e.pointerId === this.aimPointerId) {
+            this.aimPointerId = null;
+            this.world.touchAimState.active = false;
+            this.world.touchAimState.cancelled = false;
         }
     }
 
@@ -578,25 +826,41 @@ class BreakerApp {
             else if (e.code === 'KeyE') this.editor.rotateBrush(15);
         } else if (this.activeMode === 'solo' && e.code === 'Space' && !e.repeat) {
             e.preventDefault();
-            this.world.triggerMidAirSpecial(1);
+            this.triggerLocalMidAirSpecial();
         } else if ((this.activeMode === 'ai' || this.activeMode === 'p2p') && e.code === 'KeyE' && !e.repeat) {
-            if (this.activeMode === 'p2p' && this.world.isClientGuest) {
-                this.p2p.send({ t: 'in', midAir: true, w: this.world.selectedWeapon });
-            } else {
-                this.world.triggerMidAirSpecial(this.localTeam);
-            }
+            this.triggerLocalMidAirSpecial();
         }
     }
 
     getLocalMoveAxis() {
         let mx = 0;
-        if (this.keys['KeyA'] || this.keys['ArrowLeft']) mx -= 1;
-        if (this.keys['KeyD'] || this.keys['ArrowRight']) mx += 1;
-        return mx;
+        if (this.keys['KeyA'] || this.keys['ArrowLeft'] || this.touchMoveLeft) mx -= 1;
+        if (this.keys['KeyD'] || this.keys['ArrowRight'] || this.touchMoveRight) mx += 1;
+        return Math.max(-1, Math.min(1, mx));
     }
 
     getLocalJumpPressed() {
-        return Boolean(this.keys['KeyW'] || this.keys['ArrowUp'] || this.keys['Space']);
+        return Boolean(this.keys['KeyW'] || this.keys['ArrowUp'] || this.keys['Space'] || this.touchJump);
+    }
+
+    syncSpecialButton() {
+        const btn = document.getElementById('btn-midair-special');
+        if (!btn) return;
+        const proj = this.activeMode !== 'editor' ? this.world.getActiveSpecialProjectile(this.localTeam) : null;
+        if (!proj) {
+            btn.classList.remove('visible');
+            return;
+        }
+        const labelMap = {
+            1: '고폭탄 공중 분열!',
+            2: '블랙홀 즉시 기폭!',
+            3: '지진탄 수직 급강하!'
+        };
+        const nextTxt = labelMap[proj.wepId] || '특수탄 공중 기폭!';
+        if (btn.textContent !== nextTxt) {
+            btn.textContent = nextTxt;
+        }
+        btn.classList.add('visible');
     }
 
     syncHUD() {
@@ -755,6 +1019,7 @@ class BreakerApp {
                 this.showMatchResultModal();
             }
 
+            this.syncSpecialButton();
             if (this.world.tickCount % 4 === 0) {
                 this.syncHUD();
             }
