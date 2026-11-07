@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="description" content="BREAKER: 물리 파괴 퍼즐, AI 전차 공성전, 서버 없는 WebRTC 방 코드 P2P 실시간 대전, 성채 맵 에디터를 결합한 웹 물리 아레나">
     <title>BREAKER — 물리 공성 &amp; P2P 대전 아레나</title>
 
@@ -31,8 +31,9 @@
 
         <div class="header-actions">
             <button id="btn-editor-return" class="icon-btn active-toggle" type="button" style="display:none;">에디터 복귀</button>
+            <button id="btn-zoom-view" class="icon-btn" type="button" title="모바일 세로 화면에서 시야를 확대하거나 전체 전장을 봅니다">시야 확대</button>
             <button id="btn-stage-menu" class="icon-btn" type="button">맵 선택</button>
-            <button id="btn-reset-match" class="icon-btn" type="button">재시작 (R)</button>
+            <button id="btn-reset-match" class="icon-btn" type="button">재시작</button>
             <button id="btn-mute-audio" class="icon-btn" type="button">사운드 ON</button>
         </div>
     </header>
@@ -81,6 +82,23 @@
         </div>
     </section>
 
+    <div id="zoom-pan-bar" class="zoom-pan-bar" aria-label="확대 시야 좌우 이동">
+        <span class="zoom-pan-label">시야</span>
+        <input id="zoom-pan-slider" type="range" min="0" max="100" value="52" aria-label="카메라 좌우 위치">
+    </div>
+
+    <button id="btn-midair-special" class="midair-special-btn" type="button" aria-label="공중 특수탄 즉시 기폭">
+        특수탄 공중 기폭!
+    </button>
+
+    <div id="mobile-duel-pad" class="mobile-duel-pad" aria-label="모바일 전차 이동 조작 패드">
+        <button id="touch-jump" class="touch-pad-btn jump-btn" type="button" aria-label="전차 점프">▲ 점프</button>
+        <div class="touch-move-row">
+            <button id="touch-left" class="touch-pad-btn" type="button" aria-label="전차 왼쪽 이동">◀</button>
+            <button id="touch-right" class="touch-pad-btn" type="button" aria-label="전차 오른쪽 이동">▶</button>
+        </div>
+    </div>
+
     <aside id="weapon-dock" class="weapon-dock" aria-label="무기 선택 슬롯">
         <button id="wep-btn-0" class="wep-btn selected" type="button">
             <div class="wep-top"><span class="wep-key">1</span><span id="wep-ammo-0" class="wep-ammo">x3</span></div>
@@ -91,19 +109,19 @@
         <button id="wep-btn-1" class="wep-btn" type="button">
             <div class="wep-top"><span class="wep-key">2</span><span id="wep-ammo-1" class="wep-ammo">x1</span></div>
             <span class="wep-name">고폭 파편탄</span>
-            <span class="wep-sub">폭발 · 우클릭 분열</span>
+            <span class="wep-sub">폭발 · 공중 분열</span>
             <div id="wep-cd-1" class="cooldown-bar"></div>
         </button>
         <button id="wep-btn-2" class="wep-btn" type="button">
             <div class="wep-top"><span class="wep-key">3</span><span id="wep-ammo-2" class="wep-ammo">x0</span></div>
             <span class="wep-name">블랙홀 중력탄</span>
-            <span class="wep-sub">흡입 · 우클릭 기폭</span>
+            <span class="wep-sub">흡입 · 공중 기폭</span>
             <div id="wep-cd-2" class="cooldown-bar"></div>
         </button>
         <button id="wep-btn-3" class="wep-btn" type="button">
             <div class="wep-top"><span class="wep-key">4</span><span id="wep-ammo-3" class="wep-ammo">x0</span></div>
             <span class="wep-name">지진 파쇄탄</span>
-            <span class="wep-sub">중장갑 · 우클릭 급강하</span>
+            <span class="wep-sub">중장갑 · 급강하</span>
             <div id="wep-cd-3" class="cooldown-bar"></div>
         </button>
     </aside>
@@ -111,6 +129,7 @@
     <aside id="editor-dock" class="editor-dock" aria-label="성채 맵 에디터 도구">
         <div id="editor-brushes" class="btn-row"></div>
         <div class="divider-v"></div>
+        <button id="btn-editor-erase" class="icon-btn" type="button">삭제 모드 OFF</button>
         <button id="btn-shape-cycle" class="icon-btn" type="button">크기: 세로 기둥</button>
         <button id="btn-rot-left" class="icon-btn" type="button">↺ 15° (Q)</button>
         <button id="btn-rot-right" class="icon-btn" type="button">↻ 15° (E)</button>
@@ -122,7 +141,7 @@
     </aside>
 
     <div id="controls-hint" class="controls-hint">
-        마우스 거리: 발사 세기 조절 · 좌클릭: 발사 · 우클릭/스페이스: 특수탄 공중 기폭 · 숫자 1~4: 탄종 변경
+        드래그/마우스: 조준 · 클릭/손 떼기: 발사 · 우클릭/기폭 버튼: 특수탄 기폭 · 1~4: 탄종 변경
     </div>
 
     <div id="toast-banner" class="toast-banner" role="status" aria-live="polite"></div>
@@ -165,7 +184,7 @@
                 <div class="p2p-box">
                     <h3>방 참가하기 (2P 게스트)</h3>
                     <p>친구에게 받은 4자리 숫자 코드를 입력하세요.</p>
-                    <input id="input-join-code" class="text-input" type="text" maxlength="4" placeholder="예: 4829" aria-label="4자리 방 코드 입력">
+                    <input id="input-join-code" class="text-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="4" placeholder="예: 4829" aria-label="4자리 방 코드 입력">
                     <button id="btn-join-room" class="primary-btn" type="button">코드로 접속</button>
                 </div>
             </div>
