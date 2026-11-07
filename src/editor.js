@@ -21,6 +21,7 @@ export class FortressEditor {
         this.presetIdx = 0;
         this.angleDeg = 0;
         this.mirrorMode = true;
+        this.eraseMode = false;
 
         this.cursorWorld = { x: 800, y: 500 };
         this.resetDefaultTemplate();
@@ -95,12 +96,12 @@ export class FortressEditor {
     removeAt(wx, wy) {
         for (let i = this.blocks.length - 1; i >= 0; i--) {
             const b = this.blocks[i];
-            if (Math.abs(wx - b.x) <= b.w * 0.5 + 8 && Math.abs(wy - b.y) <= b.h * 0.5 + 8) {
+            if (Math.abs(wx - b.x) <= b.w * 0.5 + 16 && Math.abs(wy - b.y) <= b.h * 0.5 + 16) {
                 const removed = this.blocks.splice(i, 1)[0];
                 if (this.mirrorMode && Math.abs(removed.x - WORLD_W * 0.5) > 35) {
                     const mx = WORLD_W - removed.x;
                     const mirrorIdx = this.blocks.findIndex(
-                        (m) => m.type === removed.type && Math.abs(m.x - mx) < 12 && Math.abs(m.y - removed.y) < 12
+                        (m) => m.type === removed.type && Math.abs(m.x - mx) < 14 && Math.abs(m.y - removed.y) < 14
                     );
                     if (mirrorIdx !== -1) this.blocks.splice(mirrorIdx, 1);
                 }
@@ -161,15 +162,29 @@ export class FortressEditor {
         this.drawSpawnMarker(ctx, this.p1Spawn.x, this.p1Spawn.y, '1P 스폰', '#f59e0b');
         this.drawSpawnMarker(ctx, this.p2Spawn.x, this.p2Spawn.y, '2P 스폰', '#22d3ee');
 
-        // Ghost preview block under cursor
-        const sx = Math.max(40, Math.min(WORLD_W - 40, this.snapCoord(this.cursorWorld.x)));
-        const sy = Math.max(60, Math.min(WORLD_H - 40, this.snapCoord(this.cursorWorld.y)));
-        const { w, h } = this.getCurrentDimensions();
-        const mat = MATERIALS[this.selectedMaterial] || MATERIALS.stone;
+        if (this.eraseMode) {
+            const cx = Math.max(40, Math.min(WORLD_W - 40, this.cursorWorld.x));
+            const cy = Math.max(60, Math.min(WORLD_H - 40, this.cursorWorld.y));
+            ctx.strokeStyle = '#ef4444';
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+            ctx.moveTo(cx - 11, cy - 11);
+            ctx.lineTo(cx + 11, cy + 11);
+            ctx.moveTo(cx + 11, cy - 11);
+            ctx.lineTo(cx - 11, cy + 11);
+            ctx.stroke();
+        } else {
+            // Ghost preview block under cursor
+            const sx = Math.max(40, Math.min(WORLD_W - 40, this.snapCoord(this.cursorWorld.x)));
+            const sy = Math.max(60, Math.min(WORLD_H - 40, this.snapCoord(this.cursorWorld.y)));
+            const { w, h } = this.getCurrentDimensions();
+            const mat = MATERIALS[this.selectedMaterial] || MATERIALS.stone;
 
-        this.drawGhostBlock(ctx, sx, sy, w, h, this.angleDeg, mat.color, 0.58);
-        if (this.mirrorMode && Math.abs(sx - WORLD_W * 0.5) > 35) {
-            this.drawGhostBlock(ctx, WORLD_W - sx, sy, w, h, -this.angleDeg, mat.color, 0.32);
+            this.drawGhostBlock(ctx, sx, sy, w, h, this.angleDeg, mat.color, 0.58);
+            if (this.mirrorMode && Math.abs(sx - WORLD_W * 0.5) > 35) {
+                this.drawGhostBlock(ctx, WORLD_W - sx, sy, w, h, -this.angleDeg, mat.color, 0.32);
+            }
         }
 
         ctx.restore();
