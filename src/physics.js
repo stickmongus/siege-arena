@@ -37,24 +37,75 @@ export class SiegeWorld {
         this.matchEnded = false;
         this.winnerInfo = null; // { winnerTeam, reason, stars }
 
-        // Viewport transform (screen <-> 1600x900 world)
-        this.view = { scale: 1, offsetX: 0, offsetY: 0, dpr: 1 };
+        // Viewport transform (screen <-> 1600x900 world) & Mobile Camera Controls
+        this.zoomMode = false;
+        this.camPanNorm = 0.52;
+        this.touchAimState = { active: false, cancelled: false };
+        this.view = { scale: 1, offsetX: 0, offsetY: 0, dpr: 1, cssW: 1600, cssH: 900, minCX: 800, maxCX: 800 };
         this.resize();
+
+        if (typeof ResizeObserver !== 'undefined' && this.canvas.parentElement) {
+            this._resizeObserver = new ResizeObserver(() => this.resize());
+            this._resizeObserver.observe(this.canvas.parentElement);
+        }
     }
 
     resize() {
-        const rect = this.canvas.parentElement.getBoundingClientRect();
+        const parent = this.canvas.parentElement;
+        if (!parent) return;
+        const rect = parent.getBoundingClientRect();
+        const cssW = Math.max(1, rect.width);
+        const cssH = Math.max(1, rect.height);
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        this.canvas.width = Math.max(1, Math.floor(rect.width * dpr));
-        this.canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+        this.canvas.width = Math.max(1, Math.floor(cssW * dpr));
+        this.canvas.height = Math.max(1, Math.floor(cssH * dpr));
 
-        const scaleX = rect.width / WORLD_W;
-        const scaleY = rect.height / WORLD_H;
-        const scale = Math.min(scaleX, scaleY);
-        const offsetX = (rect.width - WORLD_W * scale) * 0.5;
-        const offsetY = (rect.height - WORLD_H * scale) * 0.5;
+        // On narrow portrait viewports, trim empty outer margins while keeping 100% of all stage islands visible
+        const isPortraitNarrow = cssW < 820 && cssW < cssH;
+        const activeW = isPortraitNarrow ? 1468 : WORLD_W;
+        const activeH = isPortraitNarrow ? 740 : WORLD_H;
+        const baseScale = Math.min(cssW / activeW, cssH / activeH);
+        const scale = this.zoomMode ? baseScale * 1.54 : baseScale;
 
-        this.view = { scale, offsetX, offsetY, dpr, cssW: rect.width, cssH: rect.height };
+        let worldCenterX = WORLD_W * 0.5;
+        let worldCenterY = isPortraitNarrow ? 465 : WORLD_H * 0.5;
+        let minCX = worldCenterX;
+        let maxCX = worldCenterX;
+
+        if (this.zoomMode) {
+            const visW = cssW / scale;
+            if (visW < 1490) {
+                minCX = 55 + visW * 0.5;
+                maxCX = 1545 - visW * 0.5;
+                worldCenterX = minCX + (maxCX - minCX) * this.camPanNorm;
+            }
+            worldCenterY = 505;
+        }
+
+        const offsetX = cssW * 0.5 - worldCenterX * scale;
+        const offsetY = cssH * 0.5 - worldCenterY * scale;
+
+        this.view = { scale, offsetX, offsetY, dpr, cssW, cssH, minCX, maxCX };
+    }
+
+    setZoomMode(enabled) {
+        this.zoomMode = Boolean(enabled);
+        this.resize();
+    }
+
+    setCameraPanNorm(norm) {
+        this.camPanNorm = Math.max(0, Math.min(1, Number(norm) || 0));
+        this.resize();
+    }
+
+    panCameraByPixels(deltaScreenX) {
+        if (!this.zoomMode) return this.camPanNorm;
+        const spanWorld = this.view.maxCX - this.view.minCX;
+        if (spanWorld <= 1) return this.camPanNorm;
+        const deltaWorld = -deltaScreenX / (this.view.scale || 1);
+        this.camPanNorm = Math.max(0, Math.min(1, this.camPanNorm + deltaWorld / spanWorld));
+        this.resize();
+        return this.camPanNorm;
     }
 
     screenToWorld(clientX, clientY) {
@@ -310,15 +361,21 @@ export class SiegeWorld {
         this.burstParticles(x, y, wep.color, isMini ? 4 : 10, 4);
     }
 
-    // Mid-air tactical trigger (Right-Click or E)
-    triggerMidAirSpecial(ownerTeam = 1) {
-        if (this.matchEnded || this.isClientGuest) return false;
+    getActiveSpecialProjectile(ownerTeam = 1) {
+        if (this.matchEnded) return null;
         let targetProj = null;
         for (const proj of this.projectiles.values()) {
-            if (proj.ownerTeam === ownerTeam && !proj.isMini && proj.wepId !== 0) {
+            if ((proj.ownerTeam || 1) === ownerTeam && !proj.isMini && proj.wepId !== 0 && !proj.slammed) {
                 targetProj = proj;
             }
         }
+        return targetProj;
+    }
+
+    // Mid-air tactical trigger (Right-Click, Space/E, or Mobile Detonate Button)
+    triggerMidAirSpecial(ownerTeam = 1) {
+        if (this.matchEnded || this.isClientGuest) return false;
+        const targetProj = this.getActiveSpecialProjectile(ownerTeam);
         if (!targetProj) return false;
 
         const pos = targetProj.body.position;
@@ -342,6 +399,7 @@ export class SiegeWorld {
         }
         if (targetProj.wepId === 3) {
             // Orbital vertical slam!
+            targetProj.slammed = true;
             window.Matter.Body.setVelocity(targetProj.body, { x: 0, y: 29 });
             targetProj.lastVx = 0;
             targetProj.lastVy = 29;
@@ -898,7 +956,9 @@ export class SiegeWorld {
                 p.wepId,
                 Math.round(p.body.position.x * 10) / 10,
                 Math.round(p.body.position.y * 10) / 10,
-                p.isMini ? 1 : 0
+                p.isMini ? 1 : 0,
+                p.ownerTeam || 1,
+                p.slammed ? 1 : 0
             ]);
         }
 
@@ -960,17 +1020,27 @@ export class SiegeWorld {
         // Sync projectiles on guest
         const aliveProjIds = new Set();
         for (const item of snap.p || []) {
-            const [id, wepId, x, y, isMini] = item;
+            const [id, wepId, x, y, isMini, ownerTeam, slammed] = item;
             aliveProjIds.add(id);
             let proj = this.projectiles.get(id);
             if (!proj) {
                 const wep = WEAPONS[wepId] || WEAPONS[0];
                 const radius = isMini ? 5.5 : wep.radius;
                 const body = Matter.Bodies.circle(x, y, radius, { isSensor: true });
-                proj = { netId: id, body, wepId, radius, isMini: Boolean(isMini), trail: [] };
+                proj = {
+                    netId: id,
+                    body,
+                    wepId,
+                    ownerTeam: ownerTeam || 1,
+                    slammed: Boolean(slammed),
+                    radius,
+                    isMini: Boolean(isMini),
+                    trail: []
+                };
                 this.projectiles.set(id, proj);
             } else {
                 Matter.Body.setPosition(proj.body, { x, y });
+                proj.slammed = Boolean(slammed);
             }
             proj.trail.push({ x, y });
             if (proj.trail.length > 14) proj.trail.shift();
@@ -1179,16 +1249,51 @@ export class SiegeWorld {
         }
 
         const wep = WEAPONS[wepId] || WEAPONS[0];
+        const isCancelled = this.touchAimState.active && this.touchAimState.cancelled;
+        const arcColor = isCancelled ? '#94a3b8' : wep.color;
         const pts = this.predictTrajectory(ox, oy, ax, ay, wepId, 38);
+
         ctx.save();
         pts.forEach((p, idx) => {
-            const alpha = Math.max(0.08, 0.68 - idx * 0.032);
-            ctx.fillStyle = wep.color;
+            const alpha = isCancelled ? Math.max(0.06, 0.32 - idx * 0.015) : Math.max(0.1, 0.72 - idx * 0.032);
+            ctx.fillStyle = arcColor;
             ctx.globalAlpha = alpha;
             ctx.beginPath();
-            ctx.arc(p.x, p.y, 3.1, 0, Math.PI * 2);
+            ctx.arc(p.x, p.y, this.touchAimState.active ? 3.8 : 3.1, 0, Math.PI * 2);
             ctx.fill();
         });
+
+        if (this.touchAimState.active) {
+            if (isCancelled) {
+                ctx.globalAlpha = 0.92;
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+                ctx.strokeStyle = '#ef4444';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.roundRect(ox - 54, oy - 58, 108, 28, 14);
+                ctx.fill();
+                ctx.stroke();
+                ctx.fillStyle = '#fecaca';
+                ctx.font = 'bold 13px "Noto Sans KR", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('발사 취소', ox, oy - 40);
+            } else {
+                ctx.globalAlpha = 0.85;
+                ctx.strokeStyle = wep.color;
+                ctx.lineWidth = 2.2;
+                ctx.beginPath();
+                ctx.arc(ax, ay, 24, 0, Math.PI * 2);
+                ctx.moveTo(ax - 32, ay);
+                ctx.lineTo(ax - 14, ay);
+                ctx.moveTo(ax + 14, ay);
+                ctx.lineTo(ax + 32, ay);
+                ctx.moveTo(ax, ay - 32);
+                ctx.lineTo(ax, ay - 14);
+                ctx.moveTo(ax, ay + 14);
+                ctx.lineTo(ax, ay + 32);
+                ctx.stroke();
+            }
+        }
         ctx.restore();
     }
 
